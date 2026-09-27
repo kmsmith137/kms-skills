@@ -1,0 +1,129 @@
+#!/usr/bin/env python3
+"""Install the skills in this repo by symlinking each skill directory into the
+places where Claude Code and Codex look for user-level skills.
+
+    ./install                          # install into the default locations
+    ./install --claude-dir DIR         # also another Claude config dir
+    ./install --dry-run                # show what would change
+    ./install --uninstall              # remove every symlink that points into this repo
+
+Default locations:
+
+    Claude Code   ~/.claude/skills, plus ~/.xsb/claude/skills if ~/.xsb/claude
+                  exists (the default config dir of xsb-sandboxed Claude), plus
+                  <dir>/skills for each --claude-dir
+    Codex         ~/.agents/skills
+
+Claude keeps user skills inside its config dir (CLAUDE_CONFIG_DIR/skills), so
+each config dir needs its own links. Codex keeps them in ~/.agents/skills,
+independent of its config dir (CODEX_HOME), so one location serves every Codex,
+sandboxed or not; there is no --codex-dir.
+
+Because these are symlinks, edits in this repo take effect immediately; re-run
+only after adding, renaming or removing a skill. The script never overwrites
+anything: an existing file, directory, or symlink pointing elsewhere is reported
+and left alone. It also removes symlinks that point into this repo but no longer
+match a skill (e.g. after a rename).
+"""
+
+import argparse
+import os
+import sys
+from pathlib import Path
+
+REPO = Path(__file__).resolve().parent
+SKILLS = REPO / 'skills'
+
+# Skills that only work in Claude Code, so they are not installed for Codex.
+CLAUDE_ONLY = {
+    'kms-artifact',     # publishes with Claude's Artifact tool
+}
+
+
+def skill_names():
+    return sorted(p.name for p in SKILLS.iterdir() if (p / 'SKILL.md').is_file())
+
+
+def targets(claude_dirs):
+    """Returns [(skills_dir, agent)], agent in {'claude', 'codex'}."""
+    home = Path.home()
+    cdirs = [home / '.claude']
+    if (home / '.xsb' / 'claude').is_dir():
+        cdirs.append(home / '.xsb' / 'claude')
+    cdirs += [Path(d).expanduser() for d in claude_dirs]
+    out, seen = [], set()
+    for d in cdirs:
+        d = d.resolve() / 'skills'
+        if d not in seen:
+            seen.add(d)
+            out.append((d, 'claude'))
+    out.append((home / '.agents' / 'skills', 'codex'))
+    return out
+
+
+def points_into_repo(link):
+    """True if 'link' is a symlink whose target is inside this repo's skills/."""
+    if not link.is_symlink():
+        return False
+    target = Path(os.path.normpath(link.parent / os.readlink(link)))
+    return target == SKILLS or SKILLS in target.parents
+
+
+def act(msg, dry_run, fn):
+    print(('[dry-run] ' if dry_run else '') + msg)
+    if not dry_run:
+        fn()
+
+
+def install(dirs, dry_run):
+    names = skill_names()
+    problems = 0
+    for d, agent in dirs:
+        wanted = [n for n in names if agent == 'claude' or n not in CLAUDE_ONLY]
+        print(f'{d}  ({agent})')
+        if not d.exists():
+            act(f'  mkdir {d}', dry_run, lambda: d.mkdir(parents=True))
+
+        for n in wanted:
+            link, src = d / n, SKILLS / n
+            if link.is_symlink() and Path(os.path.normpath(link.parent / os.readlink(link))) == src:
+                print(f'  ok        {n}')
+            elif link.exists() or link.is_symlink():
+                print(f'  SKIPPED   {n}: {link} exists and is not a link to {src}')
+                problems += 1
+            else:
+                act(f'  linked    {n}', dry_run, lambda: link.symlink_to(src))
+
+        if d.is_dir():
+            for link in sorted(d.iterdir()):
+                if points_into_repo(link) and link.name not in wanted:
+                    act(f'  removed   {link.name} (stale link into this repo)', dry_run, link.unlink)
+    return problems
+
+
+def uninstall(dirs, dry_run):
+    for d, agent in dirs:
+        if not d.is_dir():
+            continue
+        for link in sorted(d.iterdir()):
+            if points_into_repo(link):
+                act(f'removed   {link}', dry_run, link.unlink)
+    return 0
+
+
+def main():
+    p = argparse.ArgumentParser(description=__doc__.split('\n\n')[0],
+                                epilog=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument('--claude-dir', action='append', default=[], metavar='DIR',
+                   help='an extra Claude config dir (CLAUDE_CONFIG_DIR); skills go in DIR/skills')
+    p.add_argument('--dry-run', action='store_true', help='show what would change, change nothing')
+    p.add_argument('--uninstall', action='store_true', help='remove all symlinks into this repo')
+    a = p.parse_args()
+
+    dirs = targets(a.claude_dir)
+    problems = (uninstall if a.uninstall else install)(dirs, a.dry_run)
+    sys.exit(1 if problems else 0)
+
+
+if __name__ == '__main__':
+    main()
