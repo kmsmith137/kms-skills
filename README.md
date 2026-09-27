@@ -9,7 +9,7 @@ Both tools use the same skill format: a directory containing a `SKILL.md` with
 | `kms-artifact` | Render a markdown file (with math) to HTML and publish it as a claude.ai artifact, for reading on a phone | Claude only (uses Claude's Artifact tool) | when asked, or automatically |
 | `kms-humanize` | Rewrite or re-explain text so a human can follow it | Claude, Codex | only when invoked |
 | `kms-report` | After implementing a plan, write `plans/<topic>_report.md` | Claude, Codex | only when invoked |
-| `kms-research` | Run a long research campaign: dispatch subagents, keep a journal under `research/` | Claude, Codex (Codex untested) | only when invoked |
+| `kms-research` | Run a long research campaign in the current directory: dispatch subagents, keep a journal, write a summary per campaign | Claude, Codex (Codex untested) | only when invoked |
 | `kms-review-plan` | Final review of a plan before handing it to an implementing agent | Claude, Codex | only when invoked |
 
 Invoke a skill as `/kms-report` in Claude Code, or `$kms-report` in Codex (or
